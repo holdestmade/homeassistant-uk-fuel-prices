@@ -6,6 +6,7 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, Sen
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from .const import DOMAIN, ATTR_BEST_E10, ATTR_BEST_B7, ATTR_STATIONS, ATTR_LAST_UPDATE
@@ -72,6 +73,7 @@ def _device_info(entry: ConfigEntry) -> DeviceInfo:
 class _BaseUKFuelSensor(SensorEntity):
     _attr_icon = ICON
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         self.coordinator = coordinator
@@ -95,6 +97,7 @@ class _BaseUKFuelSensor(SensorEntity):
 class UKFuelStationCountSensor(_BaseUKFuelSensor):
     _attr_name = "Nearby fuel stations"
     _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
@@ -117,6 +120,7 @@ class UKFuelBestPriceSensor(_BaseUKFuelSensor):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "p"
     _attr_suggested_display_precision = 1
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, *, fuel_attr: str, name: str, unique_id: str) -> None:
         super().__init__(coordinator, entry)
@@ -144,6 +148,7 @@ class UKFuelBestPriceSensor(_BaseUKFuelSensor):
 
 class UKFuelCheapestStationSensor(_BaseUKFuelSensor):
     """State is the station name for the cheapest price; attrs include price + distance."""
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry, *, fuel_attr: str, name: str, unique_id: str) -> None:
         super().__init__(coordinator, entry)
@@ -171,6 +176,7 @@ class UKFuelCheapestStationSensor(_BaseUKFuelSensor):
 
 class UKFuelStationsListSensor(_BaseUKFuelSensor):
     _attr_name = "Stations"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
@@ -194,6 +200,7 @@ class UKFuelStationsListSensor(_BaseUKFuelSensor):
 class UKFuelLastUpdateSensor(_BaseUKFuelSensor):
     _attr_name = "Last update"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         super().__init__(coordinator, entry)
