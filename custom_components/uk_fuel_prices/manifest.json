@@ -1,0 +1,11 @@
+{
+  "domain": "uk_fuel_prices",
+  "name": "UK Fuel Prices",
+  "codeowners": ["@holdestmade"],
+  "config_flow": true,
+  "documentation": "https://github.com/holdestmade/uk_fuel_prices",
+  "issue_tracker": "https://github.com/holdestmade/uk_fuel_prices/issues",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "version": "0.1.0"
+}

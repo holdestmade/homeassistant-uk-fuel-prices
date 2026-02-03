@@ -1,0 +1,11 @@
+refresh_stations:
+  name: Refresh stations
+  description: Force a refresh of the stations list (does not clear cached prices).
+  fields:
+    entry_id:
+      name: Entry ID
+      description: Optional config entry id (only needed if multiple entries exist).
+      example: "abcdef1234567890abcdef1234567890"
+      required: false
+      selector:
+        text:
