@@ -1,6 +1,6 @@
 # UK Fuel Prices Home Assistant Integration
 
-A Home Assistant custom integration that pulls live UK fuel prices from the UK Government Fuel Finder API. It tracks nearby stations within a configurable radius and exposes sensors for the cheapest petrol (E10) and diesel (B7) prices.
+A Home Assistant custom integration that pulls live UK fuel prices from the UK Government Fuel Finder API https://www.developer.fuel-finder.service.gov.uk/access-latest-fuelprices. It tracks nearby stations within a configurable radius and exposes sensors for the cheapest petrol (E10) and diesel (B7) prices.
 
 ## Features
 
