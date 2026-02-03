@@ -30,6 +30,7 @@ STEP_SCHEMA = vol.Schema(
     }
 )
 
+
 class UKFuelPricesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
@@ -55,6 +56,7 @@ class UKFuelPricesConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
         return UKFuelPricesOptionsFlow(config_entry)
+
 
 class UKFuelPricesOptionsFlow(config_entries.OptionsFlow):
     def __init__(self, entry: config_entries.ConfigEntry) -> None:
