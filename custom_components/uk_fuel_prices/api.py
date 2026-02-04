@@ -1,3 +1,4 @@
+"""API client for UK Government Fuel Finder service."""
 from __future__ import annotations
 
 import asyncio
@@ -8,10 +9,18 @@ from typing import Any
 
 import aiohttp
 
+from .const import (
+    API_BACKOFF_BASE,
+    API_BACKOFF_JITTER,
+    API_MAX_RETRIES,
+    API_TIMEOUT_SECONDS,
+    FUEL_TYPE_B7,
+    FUEL_TYPE_E10,
+    TOKEN_REFRESH_BUFFER_SECONDS,
+)
+
 
 BASE_URL = "https://www.fuel-finder.service.gov.uk"
-
-# Matches your original script endpoints
 TOKEN_URL = f"{BASE_URL}/api/v1/oauth/generate_access_token"
 REFRESH_URL = f"{BASE_URL}/api/v1/oauth/regenerate_access_token"
 
@@ -21,21 +30,62 @@ PRICES_PATH = "/api/v1/pfs/fuel-prices"
 RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 
 
+class ApiError(Exception):
+    """Base exception for API errors."""
+
+
+class AuthenticationError(ApiError):
+    """Exception raised for authentication failures."""
+
+
+class RateLimitError(ApiError):
+    """Exception raised when rate limit is exceeded."""
+
+
+class ConnectionError(ApiError):
+    """Exception raised for connection failures."""
+
+
 @dataclass
 class FuelFinderConfig:
+    """Configuration for Fuel Finder API."""
+
     client_id: str
     client_secret: str
     home_lat: float
     home_lon: float
     radius_miles: float
 
+    def __post_init__(self) -> None:
+        """Validate configuration values."""
+        if not self.client_id or not self.client_secret:
+            raise ValueError("Client ID and secret are required")
+        if not -90 <= self.home_lat <= 90:
+            raise ValueError("Latitude must be between -90 and 90")
+        if not -180 <= self.home_lon <= 180:
+            raise ValueError("Longitude must be between -180 and 180")
+        if self.radius_miles <= 0:
+            raise ValueError("Radius must be positive")
+
 
 def _now_utc() -> datetime:
+    """Return current UTC datetime."""
     return datetime.now(timezone.utc)
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
-    """Distance between two points (km)."""
+    """
+    Calculate distance between two points using Haversine formula.
+
+    Args:
+        lat1: First point latitude
+        lon1: First point longitude
+        lat2: Second point latitude
+        lon2: Second point longitude
+
+    Returns:
+        Distance in kilometers
+    """
     lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
     dlat = lat2 - lat1
     dlon = lon2 - lon1
@@ -45,7 +95,15 @@ def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 
 
 def get_opening_today(station: dict[str, Any]) -> str | None:
-    """Get today's opening hours."""
+    """
+    Extract today's opening hours from station data.
+
+    Args:
+        station: Station data dictionary
+
+    Returns:
+        Opening hours string or None if not available
+    """
     days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
     day = days[datetime.now().weekday()]
 
@@ -68,7 +126,15 @@ def get_opening_today(station: dict[str, Any]) -> str | None:
 
 
 class FuelFinderApi:
+    """API client for UK Government Fuel Finder service."""
+
     def __init__(self, session: aiohttp.ClientSession) -> None:
+        """
+        Initialize the API client.
+
+        Args:
+            session: aiohttp client session
+        """
         self._session = session
 
     async def _request_json_with_retry(
@@ -79,14 +145,35 @@ class FuelFinderApi:
         headers: dict[str, str] | None = None,
         params: dict[str, Any] | None = None,
         json_body: dict[str, Any] | None = None,
-        timeout_s: int = 30,
-        retries: int = 6,
-        backoff_base: float = 1.6,
-        backoff_jitter: float = 0.5,
+        timeout_s: int = API_TIMEOUT_SECONDS,
+        retries: int = API_MAX_RETRIES,
+        backoff_base: float = API_BACKOFF_BASE,
+        backoff_jitter: float = API_BACKOFF_JITTER,
     ) -> Any:
         """
-        Perform request and return parsed JSON.
+        Perform HTTP request with retry logic and return parsed JSON.
+
         Retries on: 429, 500, 502, 503, 504, timeouts, connection errors.
+
+        Args:
+            method: HTTP method
+            url: Request URL
+            headers: Optional request headers
+            params: Optional query parameters
+            json_body: Optional JSON body
+            timeout_s: Request timeout in seconds
+            retries: Maximum number of retry attempts
+            backoff_base: Base for exponential backoff
+            backoff_jitter: Jitter to add to backoff
+
+        Returns:
+            Parsed JSON response
+
+        Raises:
+            AuthenticationError: For 401/403 errors
+            RateLimitError: For persistent rate limiting
+            ConnectionError: For connection failures
+            ApiError: For other API errors
         """
         last_exc: Exception | None = None
 
@@ -100,18 +187,28 @@ class FuelFinderApi:
                     json=json_body,
                     timeout=aiohttp.ClientTimeout(total=timeout_s),
                 ) as resp:
+                    # Handle authentication errors immediately
+                    if resp.status in (401, 403):
+                        error_text = await resp.text()
+                        raise AuthenticationError(
+                            f"Authentication failed (status {resp.status}): {error_text}"
+                        )
+
                     # Retryable HTTP status codes
                     if resp.status in RETRYABLE_STATUSES and attempt < retries:
-                        retry_after = resp.headers.get("Retry-After")
-                        if retry_after:
-                            try:
-                                sleep_s = float(retry_after)
-                            except ValueError:
+                        if resp.status == 429:
+                            retry_after = resp.headers.get("Retry-After")
+                            if retry_after:
+                                try:
+                                    sleep_s = float(retry_after)
+                                except ValueError:
+                                    sleep_s = (backoff_base ** (attempt - 1)) + backoff_jitter
+                            else:
                                 sleep_s = (backoff_base ** (attempt - 1)) + backoff_jitter
                         else:
                             sleep_s = (backoff_base ** (attempt - 1)) + backoff_jitter
 
-                        # Drain body before retrying (good hygiene)
+                        # Drain response body before retrying
                         try:
                             await resp.release()
                         except Exception:
@@ -123,15 +220,24 @@ class FuelFinderApi:
                     resp.raise_for_status()
                     return await resp.json()
 
-            except (aiohttp.ClientError, asyncio.TimeoutError) as e:
-                last_exc = e
+            except aiohttp.ClientError as e:
+                last_exc = ConnectionError(f"Connection error: {e}")
                 if attempt < retries:
                     sleep_s = (backoff_base ** (attempt - 1)) + backoff_jitter
                     await asyncio.sleep(sleep_s)
                     continue
-                raise
+                raise last_exc from e
+            except asyncio.TimeoutError as e:
+                last_exc = ConnectionError(f"Request timeout after {timeout_s}s")
+                if attempt < retries:
+                    sleep_s = (backoff_base ** (attempt - 1)) + backoff_jitter
+                    await asyncio.sleep(sleep_s)
+                    continue
+                raise last_exc from e
 
-        raise last_exc or RuntimeError("request failed")
+        if last_exc:
+            raise last_exc
+        raise ApiError("Request failed with unknown error")
 
     async def get_token(
         self,
@@ -139,10 +245,19 @@ class FuelFinderApi:
         token_state: dict[str, Any] | None,
     ) -> tuple[str, dict[str, Any]]:
         """
-        Script-compatible OAuth behaviour:
-        - If cached token is valid, use it
-        - Else if refresh_token exists, POST JSON to regenerate_access_token
-        - Else POST JSON to generate_access_token
+        Get or refresh OAuth access token.
+
+        Implements token caching and automatic refresh using refresh tokens.
+
+        Args:
+            cfg: Fuel Finder configuration
+            token_state: Cached token state
+
+        Returns:
+            Tuple of (access_token, new_token_state)
+
+        Raises:
+            AuthenticationError: If token acquisition fails
         """
         token_state = token_state or {}
 
@@ -150,14 +265,17 @@ class FuelFinderApi:
         expires_at = token_state.get("expires_at")
         refresh_token = token_state.get("refresh_token")
 
+        # Check if cached token is still valid
         if access_token and expires_at:
             try:
                 exp = datetime.fromisoformat(expires_at)
-                if _now_utc() < (exp - timedelta(seconds=30)):
+                buffer = timedelta(seconds=TOKEN_REFRESH_BUFFER_SECONDS)
+                if _now_utc() < (exp - buffer):
                     return access_token, token_state
             except ValueError:
                 pass
 
+        # Determine which endpoint to use
         if refresh_token:
             url = REFRESH_URL
             payload = {"client_id": cfg.client_id, "refresh_token": refresh_token}
@@ -165,17 +283,23 @@ class FuelFinderApi:
             url = TOKEN_URL
             payload = {"client_id": cfg.client_id, "client_secret": cfg.client_secret}
 
-        data = await self._request_json_with_retry(
-            "POST",
-            url,
-            headers={"accept": "application/json"},
-            json_body=payload,
-            timeout_s=30,
-            retries=8,
-        )
+        try:
+            data = await self._request_json_with_retry(
+                "POST",
+                url,
+                headers={"accept": "application/json"},
+                json_body=payload,
+                timeout_s=30,
+                retries=8,
+            )
+        except Exception as err:
+            raise AuthenticationError(f"Failed to obtain access token: {err}") from err
 
         token_data = data.get("data", data)
-        new_access = token_data["access_token"]
+        new_access = token_data.get("access_token")
+        if not new_access:
+            raise AuthenticationError("No access token in response")
+
         expires_in = int(token_data.get("expires_in", 3600))
         new_refresh = token_data.get("refresh_token", refresh_token)
 
@@ -192,6 +316,23 @@ class FuelFinderApi:
         path: str,
         params: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
+        """
+        Fetch all batches from paginated API endpoint.
+
+        The API returns up to 500 records per batch. This method automatically
+        fetches all batches until fewer than 500 records are returned.
+
+        Args:
+            token: OAuth access token
+            path: API endpoint path
+            params: Optional query parameters
+
+        Returns:
+            List of all records from all batches
+
+        Raises:
+            ApiError: If batch fetch fails
+        """
         headers = {"accept": "application/json", "authorization": f"Bearer {token}"}
 
         all_results: list[dict[str, Any]] = []
@@ -201,20 +342,24 @@ class FuelFinderApi:
             query_params = dict(params or {})
             query_params["batch-number"] = batch
 
-            batch_data = await self._request_json_with_retry(
-                "GET",
-                f"{BASE_URL}{path}",
-                headers=headers,
-                params=query_params,
-                timeout_s=30,
-                retries=6,
-            )
+            try:
+                batch_data = await self._request_json_with_retry(
+                    "GET",
+                    f"{BASE_URL}{path}",
+                    headers=headers,
+                    params=query_params,
+                    timeout_s=30,
+                    retries=6,
+                )
+            except Exception as err:
+                raise ApiError(f"Failed to fetch batch {batch}: {err}") from err
 
             if not isinstance(batch_data, list):
                 batch_data = []
 
             all_results.extend(batch_data)
 
+            # API returns fewer than 500 records when we've reached the end
             if len(batch_data) < 500:
                 break
 
@@ -222,7 +367,19 @@ class FuelFinderApi:
 
         return all_results
 
-    def process_stations(self, cfg: FuelFinderConfig, stations_data: list[dict[str, Any]]) -> dict[str, Any]:
+    def process_stations(
+        self, cfg: FuelFinderConfig, stations_data: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        """
+        Filter and process stations within configured radius.
+
+        Args:
+            cfg: Fuel Finder configuration
+            stations_data: Raw station data from API
+
+        Returns:
+            Dictionary of processed stations keyed by node_id
+        """
         radius_km = float(cfg.radius_miles) * 1.609344
         nearby_stations: dict[str, Any] = {}
 
@@ -231,6 +388,7 @@ class FuelFinderApi:
             if not node_id:
                 continue
 
+            # Skip closed stations
             if station.get("temporary_closure") or station.get("permanent_closure"):
                 continue
 
@@ -247,6 +405,7 @@ class FuelFinderApi:
             except (ValueError, TypeError):
                 continue
 
+            # Calculate distance and filter by radius
             km = haversine_km(cfg.home_lat, cfg.home_lon, lat_f, lon_f)
             if km > radius_km:
                 continue
@@ -270,7 +429,21 @@ class FuelFinderApi:
 
         return nearby_stations
 
-    def stations_cache_is_usable(self, cfg: FuelFinderConfig, state: dict[str, Any]) -> bool:
+    def stations_cache_is_usable(
+        self, cfg: FuelFinderConfig, state: dict[str, Any]
+    ) -> bool:
+        """
+        Check if cached station data is still valid.
+
+        Station cache is valid if configuration hasn't changed.
+
+        Args:
+            cfg: Current Fuel Finder configuration
+            state: Cached state data
+
+        Returns:
+            True if cache is valid, False otherwise
+        """
         cached = state.get("nearby_stations")
         if not isinstance(cached, dict) or not cached:
             return False
@@ -279,19 +452,29 @@ class FuelFinderApi:
         if not isinstance(cached_sig, dict):
             return False
 
-        def close(a: Any, b: float, tol: float) -> bool:
+        def close(a: Any, b: float, tol: float = 1e-6) -> bool:
+            """Check if two float values are within tolerance."""
             try:
                 return abs(float(a) - float(b)) <= tol
-            except Exception:
+            except (ValueError, TypeError):
                 return False
 
         return (
-            close(cached_sig.get("home_lat"), float(cfg.home_lat), 1e-6)
-            and close(cached_sig.get("home_lon"), float(cfg.home_lon), 1e-6)
-            and close(cached_sig.get("radius_miles"), float(cfg.radius_miles), 1e-6)
+            close(cached_sig.get("home_lat"), float(cfg.home_lat))
+            and close(cached_sig.get("home_lon"), float(cfg.home_lon))
+            and close(cached_sig.get("radius_miles"), float(cfg.radius_miles))
         )
 
     def _parse_isoish(self, s: str) -> datetime | None:
+        """
+        Parse ISO-ish datetime string.
+
+        Args:
+            s: Datetime string
+
+        Returns:
+            Parsed datetime or None if invalid
+        """
         if not s:
             return None
         try:
@@ -301,7 +484,20 @@ class FuelFinderApi:
         except ValueError:
             return None
 
-    def effective_start_timestamp_param(self, last_price_timestamp: str | None) -> str | None:
+    def effective_start_timestamp_param(
+        self, last_price_timestamp: str | None
+    ) -> str | None:
+        """
+        Calculate effective start timestamp for incremental price updates.
+
+        Subtracts 30 minutes buffer to ensure no prices are missed.
+
+        Args:
+            last_price_timestamp: Last known price timestamp
+
+        Returns:
+            Formatted timestamp string or None
+        """
         if not last_price_timestamp:
             return None
         dt = self._parse_isoish(last_price_timestamp)
@@ -315,6 +511,16 @@ class FuelFinderApi:
         prices_data: list[dict[str, Any]],
         nearby_station_ids: set[str],
     ) -> tuple[dict[str, Any], str | None]:
+        """
+        Process and filter price data for nearby stations.
+
+        Args:
+            prices_data: Raw price data from API
+            nearby_station_ids: Set of station IDs to include
+
+        Returns:
+            Tuple of (prices_by_station_id, max_timestamp)
+        """
         prices_by_id: dict[str, Any] = {}
         max_timestamp: str | None = None
 
@@ -351,14 +557,28 @@ class FuelFinderApi:
 
         return prices_by_id, max_timestamp
 
-    def build_output(self, stations: dict[str, Any], prices: dict[str, Any]) -> dict[str, Any]:
+    def build_output(
+        self, stations: dict[str, Any], prices: dict[str, Any]
+    ) -> dict[str, Any]:
+        """
+        Build final output data structure combining stations and prices.
+
+        Args:
+            stations: Station data dictionary
+            prices: Price data dictionary
+
+        Returns:
+            Combined output dictionary with station count, best prices, and details
+        """
         result: list[dict[str, Any]] = []
 
         for station_id, station in stations.items():
             station_prices = prices.get(station_id, {})
+            if not station_prices:
+                continue
 
-            e10_data = station_prices.get("E10", {})
-            b7_data = station_prices.get("B7_STANDARD", {})
+            e10_data = station_prices.get(FUEL_TYPE_E10, {})
+            b7_data = station_prices.get(FUEL_TYPE_B7, {})
 
             e10_price = e10_data.get("price")
             b7_price = b7_data.get("price")
@@ -377,9 +597,11 @@ class FuelFinderApi:
                 }
             )
 
+        # Sort by distance
         result.sort(key=lambda x: x.get("miles", 999999))
 
         def find_cheapest(fuel_key: str) -> dict[str, Any] | None:
+            """Find station with cheapest price for given fuel type."""
             cheapest: dict[str, Any] | None = None
             for st in result:
                 price = st.get(fuel_key)
@@ -398,7 +620,7 @@ class FuelFinderApi:
         best_b7 = find_cheapest("b7_price")
 
         return {
-            "state": len(stations),
+            "state": len(result),
             "best_e10": best_e10,
             "best_b7": best_b7,
             "stations": result,

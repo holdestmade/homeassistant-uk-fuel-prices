@@ -3,8 +3,22 @@
     "step": {
       "user": {
         "title": "UK Fuel Prices",
-        "description": "Enter your Fuel Finder API credentials and home location."
+        "description": "Enter your Fuel Finder API credentials and home location.",
+        "data": {
+          "client_id": "Client ID",
+          "client_secret": "Client Secret",
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "radius": "Search Radius (miles)",
+          "scan_interval": "Update Interval (minutes)"
+        }
       }
+    },
+    "error": {
+      "invalid_client_id": "Client ID cannot be empty",
+      "invalid_client_secret": "Client Secret cannot be empty",
+      "invalid_latitude_uk": "Latitude must be within UK bounds (49.9 to 60.9)",
+      "invalid_longitude_uk": "Longitude must be within UK bounds (-8.65 to 1.77)"
     },
     "abort": {
       "single_instance_allowed": "Only one UK Fuel Prices configuration is allowed."
@@ -14,8 +28,22 @@
     "step": {
       "init": {
         "title": "UK Fuel Prices options",
-        "description": "Update credentials, search radius and update interval."
+        "description": "Update credentials, search radius and update interval.",
+        "data": {
+          "client_id": "Client ID",
+          "client_secret": "Client Secret",
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "radius": "Search Radius (miles)",
+          "scan_interval": "Update Interval (minutes)"
+        }
       }
+    },
+    "error": {
+      "invalid_client_id": "Client ID cannot be empty",
+      "invalid_client_secret": "Client Secret cannot be empty",
+      "invalid_latitude_uk": "Latitude must be within UK bounds (49.9 to 60.9)",
+      "invalid_longitude_uk": "Longitude must be within UK bounds (-8.65 to 1.77)"
     }
   }
 }

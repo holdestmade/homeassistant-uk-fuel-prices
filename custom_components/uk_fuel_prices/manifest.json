@@ -6,6 +6,6 @@
   "documentation": "https://github.com/holdestmade/homeassistant-uk-fuel-prices",
   "issue_tracker": "https://github.com/holdestmade/homeassistant-uk-fuel-prices/issues",
   "iot_class": "cloud_polling",
-  "requirements": [],
-  "version": "0.1.0"
+  "requirements": ["aiohttp>=3.8.0"],
+  "version": "0.2.0"
 }

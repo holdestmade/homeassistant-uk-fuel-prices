@@ -1,6 +1,8 @@
+"""Sensor platform for UK Fuel Prices integration."""
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
@@ -9,18 +11,23 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from .const import DOMAIN, ATTR_BEST_E10, ATTR_BEST_B7, ATTR_STATIONS, ATTR_LAST_UPDATE
+from .const import ATTR_BEST_B7, ATTR_BEST_E10, ATTR_LAST_UPDATE, ATTR_STATIONS, DOMAIN
 
 ICON = "mdi:gas-station"
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up UK Fuel Prices sensors from a config entry."""
     coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     async_add_entities(
         [
+            # Station count sensor
             UKFuelStationCountSensor(coordinator, entry),
-
-            # Prices
+            # Best price sensors
             UKFuelBestPriceSensor(
                 coordinator,
                 entry,
@@ -35,7 +42,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 name="Cheapest diesel (B7) price",
                 unique_id=f"{DOMAIN}_cheapest_b7_price",
             ),
-
             # Station name sensors
             UKFuelCheapestStationSensor(
                 coordinator,
@@ -51,8 +57,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 name="Cheapest diesel station",
                 unique_id=f"{DOMAIN}_cheapest_b7_station",
             ),
-
-            # Diagnostic list + last update
+            # Diagnostic sensors
             UKFuelStationsListSensor(coordinator, entry),
             UKFuelLastUpdateSensor(coordinator, entry),
         ]
@@ -60,7 +65,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
 
 def _device_info(entry: ConfigEntry) -> DeviceInfo:
-    # One device per config entry.
+    """Return device info for UK Fuel Prices device."""
     return DeviceInfo(
         identifiers={(DOMAIN, entry.entry_id)},
         name="UK Fuel Prices",
@@ -71,71 +76,98 @@ def _device_info(entry: ConfigEntry) -> DeviceInfo:
 
 
 class _BaseUKFuelSensor(SensorEntity):
+    """Base class for UK Fuel sensors."""
+
     _attr_icon = ICON
     _attr_has_entity_name = True
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
         self.coordinator = coordinator
         self._entry = entry
 
     @property
     def device_info(self) -> DeviceInfo:
+        """Return device info."""
         return _device_info(self._entry)
 
     @property
     def available(self) -> bool:
+        """Return if entity is available."""
         return self.coordinator.last_update_success
 
     async def async_added_to_hass(self) -> None:
-        self.async_on_remove(self.coordinator.async_add_listener(self.async_write_ha_state))
+        """When entity is added to hass."""
+        self.async_on_remove(
+            self.coordinator.async_add_listener(self.async_write_ha_state)
+        )
 
     async def async_update(self) -> None:
+        """Update the entity."""
         await self.coordinator.async_request_refresh()
 
 
 class UKFuelStationCountSensor(_BaseUKFuelSensor):
+    """Sensor showing count of nearby fuel stations."""
+
     _attr_name = "Nearby fuel stations"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = "stations"
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{DOMAIN}_count"
 
     @property
-    def native_value(self):
+    def native_value(self) -> int | None:
+        """Return the state."""
         data = self.coordinator.data or {}
         return data.get("state")
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra attributes."""
         data = self.coordinator.data or {}
         return {ATTR_LAST_UPDATE: data.get(ATTR_LAST_UPDATE)}
 
 
 class UKFuelBestPriceSensor(_BaseUKFuelSensor):
-    """State is the cheapest price for a fuel type; attrs include station details."""
+    """Sensor showing the cheapest price for a fuel type."""
 
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "p"
     _attr_suggested_display_precision = 1
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.MONETARY
 
-    def __init__(self, coordinator, entry: ConfigEntry, *, fuel_attr: str, name: str, unique_id: str) -> None:
+    def __init__(
+        self,
+        coordinator,
+        entry: ConfigEntry,
+        *,
+        fuel_attr: str,
+        name: str,
+        unique_id: str,
+    ) -> None:
+        """Initialize the sensor."""
         super().__init__(coordinator, entry)
         self._fuel_attr = fuel_attr
         self._attr_name = name
         self._attr_unique_id = unique_id
+        # Remove diagnostic category for price sensors - they're primary entities
+        self._attr_entity_category = None
 
     @property
-    def native_value(self):
+    def native_value(self) -> float | None:
+        """Return the state."""
         data = self.coordinator.data or {}
         best = data.get(self._fuel_attr) or {}
         return best.get("price")
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra attributes."""
         data = self.coordinator.data or {}
         best = data.get(self._fuel_attr) or {}
         return {
@@ -147,23 +179,35 @@ class UKFuelBestPriceSensor(_BaseUKFuelSensor):
 
 
 class UKFuelCheapestStationSensor(_BaseUKFuelSensor):
-    """State is the station name for the cheapest price; attrs include price + distance."""
+    """Sensor showing the station name for the cheapest price."""
+
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
-    def __init__(self, coordinator, entry: ConfigEntry, *, fuel_attr: str, name: str, unique_id: str) -> None:
+    def __init__(
+        self,
+        coordinator,
+        entry: ConfigEntry,
+        *,
+        fuel_attr: str,
+        name: str,
+        unique_id: str,
+    ) -> None:
+        """Initialize the sensor."""
         super().__init__(coordinator, entry)
         self._fuel_attr = fuel_attr
         self._attr_name = name
         self._attr_unique_id = unique_id
 
     @property
-    def native_value(self):
+    def native_value(self) -> str | None:
+        """Return the state."""
         data = self.coordinator.data or {}
         best = data.get(self._fuel_attr) or {}
         return best.get("name")
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra attributes."""
         data = self.coordinator.data or {}
         best = data.get(self._fuel_attr) or {}
         return {
@@ -175,21 +219,27 @@ class UKFuelCheapestStationSensor(_BaseUKFuelSensor):
 
 
 class UKFuelStationsListSensor(_BaseUKFuelSensor):
+    """Sensor with list of all stations and their prices."""
+
     _attr_name = "Stations"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = "stations"
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{DOMAIN}_stations"
 
     @property
-    def native_value(self):
+    def native_value(self) -> int:
+        """Return the state."""
         data = self.coordinator.data or {}
         stations = data.get(ATTR_STATIONS) or []
         return len(stations)
 
     @property
-    def extra_state_attributes(self):
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return extra attributes."""
         data = self.coordinator.data or {}
         return {
             ATTR_STATIONS: data.get(ATTR_STATIONS, []),
@@ -198,16 +248,20 @@ class UKFuelStationsListSensor(_BaseUKFuelSensor):
 
 
 class UKFuelLastUpdateSensor(_BaseUKFuelSensor):
+    """Sensor showing last update timestamp."""
+
     _attr_name = "Last update"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
+        """Initialize the sensor."""
         super().__init__(coordinator, entry)
         self._attr_unique_id = f"{DOMAIN}_last_update"
 
     @property
-    def native_value(self):
+    def native_value(self) -> datetime | None:
+        """Return the state."""
         data = self.coordinator.data or {}
         val = data.get(ATTR_LAST_UPDATE)
         if not val:
@@ -216,5 +270,5 @@ class UKFuelLastUpdateSensor(_BaseUKFuelSensor):
             if isinstance(val, str) and val.endswith("Z"):
                 val = val[:-1] + "+00:00"
             return datetime.fromisoformat(val)
-        except Exception:
+        except (ValueError, TypeError):
             return None
