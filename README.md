@@ -289,4 +289,5 @@ This integration is provided as-is for use with Home Assistant.
 
 - UK Government for providing the Fuel Finder API
 - Home Assistant community for development guidance
+- https://phil-male.com/ for the initial python script
 - All contributors and users providing feedback
