@@ -1,0 +1,5 @@
+{
+  "name": "UK Fuel Prices",
+  "render_readme": true,
+  "domains": ["sensor", "button"]
+}
