@@ -571,6 +571,7 @@ class FuelFinderApi:
             Combined output dictionary with station count, best prices, and details
         """
         result: list[dict[str, Any]] = []
+        total_stations = len(stations)
 
         for station_id, station in stations.items():
             station_prices = prices.get(station_id, {})
@@ -620,7 +621,7 @@ class FuelFinderApi:
         best_b7 = find_cheapest("b7_price")
 
         return {
-            "state": len(result),
+            "state": total_stations,
             "best_e10": best_e10,
             "best_b7": best_b7,
             "stations": result,
