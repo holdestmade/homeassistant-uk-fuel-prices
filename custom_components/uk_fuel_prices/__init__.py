@@ -56,6 +56,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         raise
 
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
+    entry.async_on_unload(entry.add_update_listener(_async_update_options))
 
     # Register services only once
     if not hass.data[DOMAIN]["_services_registered"]:
@@ -64,6 +65,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Handle options update."""
+    coordinator = hass.data.get(DOMAIN, {}).get(entry.entry_id, {}).get("coordinator")
+    if coordinator is None:
+        return
+
+    coordinator.update_interval = timedelta(minutes=coordinator._scan_interval_minutes())
+    await coordinator.async_request_refresh()
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:

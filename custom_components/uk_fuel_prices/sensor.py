@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import ATTR_BEST_B7, ATTR_BEST_E10, ATTR_LAST_UPDATE, ATTR_STATIONS, DOMAIN
 
@@ -75,15 +76,16 @@ def _device_info(entry: ConfigEntry) -> DeviceInfo:
     )
 
 
-class _BaseUKFuelSensor(SensorEntity):
+class _BaseUKFuelSensor(CoordinatorEntity, SensorEntity):
     """Base class for UK Fuel sensors."""
 
     _attr_icon = ICON
     _attr_has_entity_name = True
+    _attr_should_poll = False
 
     def __init__(self, coordinator, entry: ConfigEntry) -> None:
         """Initialize the sensor."""
-        self.coordinator = coordinator
+        super().__init__(coordinator)
         self._entry = entry
 
     @property
@@ -96,15 +98,6 @@ class _BaseUKFuelSensor(SensorEntity):
         """Return if entity is available."""
         return self.coordinator.last_update_success
 
-    async def async_added_to_hass(self) -> None:
-        """When entity is added to hass."""
-        self.async_on_remove(
-            self.coordinator.async_add_listener(self.async_write_ha_state)
-        )
-
-    async def async_update(self) -> None:
-        """Update the entity."""
-        await self.coordinator.async_request_refresh()
 
 
 class UKFuelStationCountSensor(_BaseUKFuelSensor):
