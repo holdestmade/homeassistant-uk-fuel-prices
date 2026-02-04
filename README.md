@@ -250,22 +250,6 @@ logger:
 - **Station Data**: Depends on stations reporting to the government API
 - **Price Accuracy**: As accurate as the data provided by fuel stations
 
-## Version History
-
-See [CHANGELOG.md](CHANGELOG.md) for detailed version history.
-
-**Current Version**: 0.2.0
-
-### Recent Improvements (v0.2.0)
-
-- ✅ Enhanced authentication with automatic token refresh
-- ✅ Smart caching for stations and incremental price updates
-- ✅ Comprehensive input validation (UK bounds, radius limits)
-- ✅ Robust error handling with fallback to cached data
-- ✅ Better sensor organization with proper device classes
-- ✅ Full type hints and documentation
-- ✅ HACS integration support
-
 ## Contributing
 
 Contributions are welcome! Please feel free to:
