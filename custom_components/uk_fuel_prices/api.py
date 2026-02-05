@@ -16,6 +16,7 @@ from .const import (
     API_TIMEOUT_SECONDS,
     FUEL_TYPE_B7,
     FUEL_TYPE_E10,
+    FUEL_TYPE_E5,
     TOKEN_REFRESH_BUFFER_SECONDS,
 )
 
@@ -579,9 +580,11 @@ class FuelFinderApi:
                 continue
 
             e10_data = station_prices.get(FUEL_TYPE_E10, {})
+            e5_data = station_prices.get(FUEL_TYPE_E5, {})
             b7_data = station_prices.get(FUEL_TYPE_B7, {})
 
             e10_price = e10_data.get("price")
+            e5_price = e5_data.get("price")
             b7_price = b7_data.get("price")
 
             result.append(
@@ -593,6 +596,8 @@ class FuelFinderApi:
                     "open_today": station.get("open_today"),
                     "e10_price": round(float(e10_price), 1) if e10_price is not None else None,
                     "e10_updated": e10_data.get("timestamp"),
+                    "e5_price": round(float(e5_price), 1) if e5_price is not None else None,
+                    "e5_updated": e5_data.get("timestamp"),
                     "b7_price": round(float(b7_price), 1) if b7_price is not None else None,
                     "b7_updated": b7_data.get("timestamp"),
                 }
@@ -618,11 +623,13 @@ class FuelFinderApi:
             return cheapest
 
         best_e10 = find_cheapest("e10_price")
+        best_e5 = find_cheapest("e5_price")
         best_b7 = find_cheapest("b7_price")
 
         return {
             "state": total_stations,
             "best_e10": best_e10,
+            "best_e5": best_e5,
             "best_b7": best_b7,
             "stations": result,
             "last_update": _now_utc().isoformat(),

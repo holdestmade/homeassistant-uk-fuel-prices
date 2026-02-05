@@ -12,7 +12,14 @@ from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTR_BEST_B7, ATTR_BEST_E10, ATTR_LAST_UPDATE, ATTR_STATIONS, DOMAIN
+from .const import (
+    ATTR_BEST_B7,
+    ATTR_BEST_E10,
+    ATTR_BEST_E5,
+    ATTR_LAST_UPDATE,
+    ATTR_STATIONS,
+    DOMAIN,
+)
 
 ICON = "mdi:gas-station"
 
@@ -39,6 +46,13 @@ async def async_setup_entry(
             UKFuelBestPriceSensor(
                 coordinator,
                 entry,
+                fuel_attr=ATTR_BEST_E5,
+                name="Cheapest petrol (E5) price",
+                unique_id=f"{DOMAIN}_cheapest_e5_price",
+            ),
+            UKFuelBestPriceSensor(
+                coordinator,
+                entry,
                 fuel_attr=ATTR_BEST_B7,
                 name="Cheapest diesel (B7) price",
                 unique_id=f"{DOMAIN}_cheapest_b7_price",
@@ -50,6 +64,13 @@ async def async_setup_entry(
                 fuel_attr=ATTR_BEST_E10,
                 name="Cheapest petrol (E10) station",
                 unique_id=f"{DOMAIN}_cheapest_e10_station",
+            ),
+            UKFuelCheapestStationSensor(
+                coordinator,
+                entry,
+                fuel_attr=ATTR_BEST_E5,
+                name="Cheapest petrol (E5) station",
+                unique_id=f"{DOMAIN}_cheapest_e5_station",
             ),
             UKFuelCheapestStationSensor(
                 coordinator,
