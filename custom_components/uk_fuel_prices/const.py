@@ -29,6 +29,7 @@ MAX_SCAN_INTERVAL_MINUTES = 720
 
 # Attribute keys
 ATTR_BEST_E10 = "best_e10"
+ATTR_BEST_E5 = "best_e5"
 ATTR_BEST_B7 = "best_b7"
 ATTR_STATIONS = "stations"
 ATTR_LAST_UPDATE = "last_update"
@@ -43,6 +44,7 @@ SERVICE_FIELD_ENTRY_ID = "entry_id"
 
 # Fuel types
 FUEL_TYPE_E10 = "E10"
+FUEL_TYPE_E5 = "E5"
 FUEL_TYPE_B7 = "B7_STANDARD"
 
 # API configuration
