@@ -46,14 +46,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     coordinator = UKFuelPricesCoordinator(hass, entry, api, store)
 
-    try:
-        await coordinator.async_config_entry_first_refresh()
-    except ConfigEntryAuthFailed:
-        # Let Home Assistant handle auth failures
-        raise
-    except Exception as err:
-        _LOGGER.error("Error setting up UK Fuel Prices: %s", err)
-        raise
+    await coordinator.async_initialize_from_cache()
 
     hass.data[DOMAIN][entry.entry_id] = {"coordinator": coordinator}
     entry.async_on_unload(entry.add_update_listener(_async_update_options))
@@ -64,7 +57,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN]["_services_registered"] = True
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Run first refresh in the background so startup is not blocked by API latency.
+    hass.async_create_task(_async_initial_refresh(coordinator, entry.entry_id))
     return True
+
+
+async def _async_initial_refresh(
+    coordinator: UKFuelPricesCoordinator,
+    entry_id: str,
+) -> None:
+    """Run initial refresh without blocking Home Assistant startup."""
+    try:
+        await coordinator.async_config_entry_first_refresh()
+    except ConfigEntryAuthFailed as err:
+        _LOGGER.error("Initial refresh failed with authentication error for %s: %s", entry_id, err)
+    except Exception as err:
+        _LOGGER.warning("Initial refresh failed for %s: %s", entry_id, err)
 
 
 async def _async_update_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -177,6 +186,23 @@ class UKFuelPricesCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         stored = await self.store.async_load()
         self._persisted = stored if isinstance(stored, dict) else {}
+
+    async def async_initialize_from_cache(self) -> None:
+        """Restore cached state into coordinator data before first API refresh."""
+        await self._load_store()
+
+        state = self._persisted.get("state")
+        if not isinstance(state, dict):
+            return
+
+        cached_stations = state.get("nearby_stations")
+        cached_prices = state.get("last_prices")
+        if not isinstance(cached_stations, dict) or not isinstance(cached_prices, dict):
+            return
+
+        cached_output = self.api.build_output(cached_stations, cached_prices)
+        if cached_output:
+            self.async_set_updated_data(cached_output)
 
     async def _save_store(self) -> None:
         """Save persisted data to storage."""
