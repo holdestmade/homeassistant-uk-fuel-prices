@@ -150,7 +150,7 @@ class UKFuelStationCountSensor(_BaseUKFuelSensor):
 class UKFuelBestPriceSensor(_BaseUKFuelSensor):
     """Sensor showing the cheapest price for a fuel type."""
 
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "p"
     _attr_suggested_display_precision = 1
     _attr_device_class = SensorDeviceClass.MONETARY
