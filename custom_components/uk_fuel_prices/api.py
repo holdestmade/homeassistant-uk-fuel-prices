@@ -24,6 +24,8 @@ from .const import (
 BASE_URL = "https://www.fuel-finder.service.gov.uk"
 TOKEN_URL = f"{BASE_URL}/api/v1/oauth/generate_access_token"
 REFRESH_URL = f"{BASE_URL}/api/v1/oauth/regenerate_access_token"
+TOKEN_URL_V2 = f"{BASE_URL}/api/v2/oauth/generate_access_token"
+REFRESH_URL_V2 = f"{BASE_URL}/api/v2/oauth/regenerate_access_token"
 
 PFS_PATH = "/api/v1/pfs"
 PRICES_PATH = "/api/v1/pfs/fuel-prices"
@@ -276,27 +278,65 @@ class FuelFinderApi:
             except ValueError:
                 pass
 
-        # Determine which endpoint to use
         if refresh_token:
-            url = REFRESH_URL
-            payload = {"client_id": cfg.client_id, "refresh_token": refresh_token}
+            attempts = [
+                (
+                    REFRESH_URL,
+                    {
+                        "client_id": cfg.client_id,
+                        "client_secret": cfg.client_secret,
+                        "refresh_token": refresh_token,
+                    },
+                ),
+                (
+                    REFRESH_URL,
+                    {"client_id": cfg.client_id, "refresh_token": refresh_token},
+                ),
+                (
+                    REFRESH_URL_V2,
+                    {
+                        "client_id": cfg.client_id,
+                        "client_secret": cfg.client_secret,
+                        "refresh_token": refresh_token,
+                    },
+                ),
+                (
+                    REFRESH_URL_V2,
+                    {"client_id": cfg.client_id, "refresh_token": refresh_token},
+                ),
+            ]
         else:
-            url = TOKEN_URL
-            payload = {"client_id": cfg.client_id, "client_secret": cfg.client_secret}
+            attempts = [
+                (
+                    TOKEN_URL,
+                    {"client_id": cfg.client_id, "client_secret": cfg.client_secret},
+                ),
+                (
+                    TOKEN_URL_V2,
+                    {"client_id": cfg.client_id, "client_secret": cfg.client_secret},
+                ),
+            ]
 
-        try:
-            data = await self._request_json_with_retry(
-                "POST",
-                url,
-                headers={"accept": "application/json"},
-                json_body=payload,
-                timeout_s=30,
-                retries=8,
-            )
-        except Exception as err:
-            raise AuthenticationError(f"Failed to obtain access token: {err}") from err
+        data: dict[str, Any] | None = None
+        last_err: Exception | None = None
+        for url, payload in attempts:
+            try:
+                data = await self._request_json_with_retry(
+                    "POST",
+                    url,
+                    headers={"accept": "application/json"},
+                    json_body=payload,
+                    timeout_s=30,
+                    retries=8,
+                )
+                break
+            except Exception as err:
+                last_err = err
 
-        token_data = data.get("data", data)
+        if data is None:
+            raise AuthenticationError(f"Failed to obtain access token: {last_err}")
+
+        token_data = self._extract_payload(data)
         new_access = token_data.get("access_token")
         if not new_access:
             raise AuthenticationError("No access token in response")
@@ -344,7 +384,7 @@ class FuelFinderApi:
             query_params["batch-number"] = batch
 
             try:
-                batch_data = await self._request_json_with_retry(
+                response_data = await self._request_json_with_retry(
                     "GET",
                     f"{BASE_URL}{path}",
                     headers=headers,
@@ -355,13 +395,15 @@ class FuelFinderApi:
             except Exception as err:
                 raise ApiError(f"Failed to fetch batch {batch}: {err}") from err
 
-            if not isinstance(batch_data, list):
-                batch_data = []
+            batch_data, has_more = self._extract_batch_items(response_data)
 
             all_results.extend(batch_data)
 
-            # API returns fewer than 500 records when we've reached the end
-            if len(batch_data) < 500:
+            if has_more is not None:
+                if not has_more:
+                    break
+            # Older API versions return fewer than 500 records when we've reached the end.
+            elif len(batch_data) < 500:
                 break
 
             batch += 1
@@ -465,6 +507,52 @@ class FuelFinderApi:
             and close(cached_sig.get("home_lon"), float(cfg.home_lon))
             and close(cached_sig.get("radius_miles"), float(cfg.radius_miles))
         )
+
+    def _extract_payload(self, response: Any) -> dict[str, Any]:
+        """Extract payload from API response supporting legacy and wrapped formats."""
+        if isinstance(response, dict):
+            data = response.get("data")
+            if isinstance(data, dict):
+                return data
+            return response
+        return {}
+
+    def _extract_batch_items(
+        self, response: Any
+    ) -> tuple[list[dict[str, Any]], bool | None]:
+        """Extract paginated items from API response with format fallbacks."""
+        if isinstance(response, list):
+            return [item for item in response if isinstance(item, dict)], None
+
+        if not isinstance(response, dict):
+            return [], None
+
+        data = response.get("data", response)
+        if isinstance(data, list):
+            items = [item for item in data if isinstance(item, dict)]
+        elif isinstance(data, dict):
+            raw_items = data.get("items") or data.get("records") or []
+            items = [item for item in raw_items if isinstance(item, dict)]
+        else:
+            items = []
+
+        pagination = response.get("pagination")
+        if not isinstance(pagination, dict) and isinstance(data, dict):
+            pagination = data.get("pagination")
+
+        has_more = None
+        if isinstance(pagination, dict):
+            if "has_next" in pagination:
+                has_more = bool(pagination.get("has_next"))
+            elif "has_next_page" in pagination:
+                has_more = bool(pagination.get("has_next_page"))
+            elif "total_pages" in pagination and "page" in pagination:
+                try:
+                    has_more = int(pagination["page"]) < int(pagination["total_pages"])
+                except (TypeError, ValueError):
+                    has_more = None
+
+        return items, has_more
 
     def _parse_isoish(self, s: str) -> datetime | None:
         """
