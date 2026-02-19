@@ -200,7 +200,11 @@ class UKFuelPricesCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if not isinstance(cached_stations, dict) or not isinstance(cached_prices, dict):
             return
 
-        cached_output = self.api.build_output(cached_stations, cached_prices)
+        cached_output = await self.hass.async_add_executor_job(
+            self.api.build_output,
+            cached_stations,
+            cached_prices,
+        )
         if cached_output:
             self.async_set_updated_data(cached_output)
 
@@ -255,7 +259,11 @@ class UKFuelPricesCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and cached_prices
             ):
                 _LOGGER.warning("Using cached data due to authentication failure")
-                output = self.api.build_output(cached_stations, cached_prices)
+                output = await self.hass.async_add_executor_job(
+                    self.api.build_output,
+                    cached_stations,
+                    cached_prices,
+                )
                 if not output.get("last_update"):
                     output["last_update"] = datetime.now(timezone.utc).isoformat()
 
@@ -275,7 +283,11 @@ class UKFuelPricesCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 and isinstance(cached_prices, dict)
                 and cached_prices
             ):
-                output = self.api.build_output(cached_stations, cached_prices)
+                output = await self.hass.async_add_executor_job(
+                    self.api.build_output,
+                    cached_stations,
+                    cached_prices,
+                )
                 if not output.get("last_update"):
                     output["last_update"] = datetime.now(timezone.utc).isoformat()
 
@@ -299,7 +311,11 @@ class UKFuelPricesCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             try:
                 _LOGGER.info("Fetching stations from API")
                 stations_data = await self.api.fetch_all_batches(token, "/api/v1/pfs")
-                nearby_stations = self.api.process_stations(cfg, stations_data)
+                nearby_stations = await self.hass.async_add_executor_job(
+                    self.api.process_stations,
+                    cfg,
+                    stations_data,
+                )
 
                 state["nearby_stations"] = nearby_stations
                 state["stations_config"] = {
@@ -336,7 +352,11 @@ class UKFuelPricesCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             prices_data = await self.api.fetch_all_batches(
                 token, "/api/v1/pfs/fuel-prices", params
             )
-            prices, max_timestamp = self.api.process_prices(prices_data, nearby_ids)
+            prices, max_timestamp = await self.hass.async_add_executor_job(
+                self.api.process_prices,
+                prices_data,
+                nearby_ids,
+            )
 
             # Merge into cache
             for node_id, fuels in prices.items():
@@ -358,7 +378,11 @@ class UKFuelPricesCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.warning("Price fetch error, using cached prices: %s", err)
 
         # Build final output
-        output = self.api.build_output(nearby_stations, cached_prices)
+        output = await self.hass.async_add_executor_job(
+            self.api.build_output,
+            nearby_stations,
+            cached_prices,
+        )
 
         # Persist state
         self._persisted["state"] = state
