@@ -620,7 +620,9 @@ class FuelFinderApi:
                 continue
 
             fuel_prices = record.get("fuel_prices", [])
-            station_prices: dict[str, Any] = {}
+            station_prices = prices_by_id.get(node_id)
+            if not isinstance(station_prices, dict):
+                station_prices = {}
 
             for fuel in fuel_prices:
                 fuel_type = fuel.get("fuel_type")
