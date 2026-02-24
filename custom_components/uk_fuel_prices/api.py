@@ -612,6 +612,7 @@ class FuelFinderApi:
         """
         prices_by_id: dict[str, Any] = {}
         max_timestamp: str | None = None
+        max_timestamp_dt: datetime | None = None
 
         for record in prices_data:
             node_id = record.get("node_id")
@@ -636,15 +637,66 @@ class FuelFinderApi:
                     continue
 
                 timestamp = fuel.get("price_last_updated")
-                station_prices[fuel_type] = {"price": price_f, "timestamp": timestamp}
+                existing_fuel = station_prices.get(fuel_type)
+                existing_ts = (
+                    existing_fuel.get("timestamp") if isinstance(existing_fuel, dict) else None
+                )
 
-                if timestamp and (max_timestamp is None or timestamp > max_timestamp):
+                if self._is_newer_timestamp(timestamp, existing_ts):
+                    station_prices[fuel_type] = {"price": price_f, "timestamp": timestamp}
+                elif existing_fuel is None:
+                    station_prices[fuel_type] = {"price": price_f, "timestamp": timestamp}
+
+                parsed_ts = self._parse_isoish(timestamp) if isinstance(timestamp, str) else None
+                if parsed_ts and (max_timestamp_dt is None or parsed_ts > max_timestamp_dt):
+                    max_timestamp_dt = parsed_ts
                     max_timestamp = timestamp
 
             if station_prices:
                 prices_by_id[node_id] = station_prices
 
         return prices_by_id, max_timestamp
+
+    def merge_station_prices(
+        self,
+        existing_prices: dict[str, Any],
+        incoming_prices: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Merge incoming station prices without replacing newer cached values."""
+        merged = dict(existing_prices)
+        for fuel_type, fuel_data in incoming_prices.items():
+            if not isinstance(fuel_data, dict):
+                continue
+
+            incoming_ts = fuel_data.get("timestamp")
+            existing = merged.get(fuel_type)
+            existing_ts = existing.get("timestamp") if isinstance(existing, dict) else None
+
+            if self._is_newer_timestamp(incoming_ts, existing_ts):
+                merged[fuel_type] = fuel_data
+            elif existing is None:
+                merged[fuel_type] = fuel_data
+
+        return merged
+
+    def _is_newer_timestamp(self, candidate: Any, current: Any) -> bool:
+        """Return True if candidate timestamp is newer than current timestamp."""
+        if not isinstance(candidate, str):
+            return False
+        if not isinstance(current, str):
+            return True
+
+        candidate_dt = self._parse_isoish(candidate)
+        current_dt = self._parse_isoish(current)
+
+        if candidate_dt and current_dt:
+            return candidate_dt > current_dt
+        if candidate_dt:
+            return True
+        if current_dt:
+            return False
+
+        return candidate > current
 
     def build_output(
         self, stations: dict[str, Any], prices: dict[str, Any]
