@@ -365,8 +365,11 @@ class UKFuelPricesCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 existing = cached_prices.get(node_id, {})
                 if not isinstance(existing, dict):
                     existing = {}
-                existing.update(fuels)
-                cached_prices[node_id] = existing
+                cached_prices[node_id] = await self.hass.async_add_executor_job(
+                    self.api.merge_station_prices,
+                    existing,
+                    fuels,
+                )
 
             state["last_prices"] = cached_prices
             if max_timestamp:
